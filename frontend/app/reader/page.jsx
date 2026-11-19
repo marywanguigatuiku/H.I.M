@@ -438,6 +438,7 @@ function Reader() {
         show(p, startIdx, ps);
         if (ps.length === 0) setError("No readable text found in the first pages. This may be a scanned PDF (it needs OCR, coming later).");
         setStatus("ready");
+        api(`/api/documents/${id}/opened`, { method: "POST" }).catch(() => {}); // tells the admin report this book was read
       } catch (e) {
         if (!dead) {
           setStatus("error");

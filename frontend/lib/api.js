@@ -1,7 +1,22 @@
 const BASE = process.env.NEXT_PUBLIC_API_URL || "";
 
 export const getToken = () => (typeof window !== "undefined" ? localStorage.getItem("token") : null);
-export const setToken = (t) => (t ? localStorage.setItem("token", t) : localStorage.removeItem("token"));
+export const setToken = (t) => {
+  if (t) localStorage.setItem("token", t);
+  else {
+    localStorage.removeItem("token");
+    localStorage.removeItem("user");
+  }
+};
+export const getUser = () => {
+  try { return JSON.parse(localStorage.getItem("user") || "null"); } catch { return null; }
+};
+export const setUser = (u) => localStorage.setItem("user", JSON.stringify(u));
+/** Saves the login result: token plus who the person is and which apps they may open. */
+export const setSession = (res) => {
+  setToken(res.token);
+  setUser(res.user);
+};
 
 export async function api(path, { method = "GET", body, form, raw } = {}) {
   const headers = {};

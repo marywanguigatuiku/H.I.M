@@ -14,7 +14,27 @@ services:
       - key: SECRET_KEY
         generateValue: true
       - key: INVITE_CODE
-        value: friends2025
+        sync: false          # set it in the Render dashboard, never in this file
+      - key: ADMIN_EMAILS
+        sync: false          # your email(s), comma separated: they become admins
+      - key: DEFAULT_APPS
+        value: library       # apps given to people who join with the shared invite code
+      - key: GROQ_API_KEY
+        sync: false          # your free key from console.groq.com, set in the Render dashboard
+      - key: TRANSCRIBE_ENGINE
+        value: groq
+      - key: MAX_AUDIO_MB
+        value: "600"
+      - key: STORAGE_BACKEND
+        value: local         # change to s3 once you have a bucket (see GETTING-STARTED.md)
+      - key: S3_ENDPOINT
+        sync: false
+      - key: S3_BUCKET
+        sync: false
+      - key: S3_ACCESS_KEY
+        sync: false
+      - key: S3_SECRET_KEY
+        sync: false
       - key: STORAGE_DIR
         value: ./storage
       - key: CORS_ORIGINS

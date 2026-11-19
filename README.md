@@ -1,22 +1,140 @@
-# Read-Aloud PDF (backend + frontend, Stage 3)
+# Me-Nasoma (Read-Aloud): Library, Transcribe & Admin
 
-Needs: Python 3.11+, PostgreSQL (local, or a free Neon/Supabase database), Node.js 18+.
+A monolithic FastAPI application serving three static Next.js applications from a single server on port `8000`:
 
-## How to run
-See GETTING-STARTED.md for the full step-by-step (VS Code, Windows / Mac / Linux).
+| Route | Description | Source Folder |
+| :--- | :--- | :--- |
+| `/` | PDF Library & AI Read-Aloud Reader | `frontend/` |
+| `/transcribe/` | Audio & Sermon Transcription Engine | `frontend-stt/` |
+| `/admin/` | User Management, Access Control & Usage | `frontend-admin/` |
+| `/api/...` | FastAPI Backend & PostgreSQL API | `backend/` |
 
-## What works now
-Sign up with invite code, library (upload, search, delete, save offline), reader with
-paragraph splitting, play/pause, previous/next paragraph, speed, voice choice, page
-arrows, resume where you stopped, lock-screen controls.
-Stage 3: pencil notes (bottom sheet over the page, audio keeps playing), notes saved on
-the device as you type, pinned to a paragraph if you want, synced to the server when
-online (newer edit wins), and an offline app shell (service worker, installable).
+---
 
-## Offline notes
-- Open the app once online, open each PDF once, then it also loads without internet.
-- The service worker only runs in the production build (npm run build), not npm run dev.
-- On http://localhost it works. On other devices offline install needs https.
+## 1. Prerequisites (One-Time Setup)
 
-## Next
-Polish and fixes from your testing, then Capacitor packaging for Android.
+Install these tools before setting up the project:
+
+1. **Python 3.11+**
+2. **Node.js 18+**
+3. **FFmpeg** (required for splitting and processing long audio files):
+   ```powershell
+   winget install ffmpeg
+   ```
+   > **Important:** Completely close and reopen VS Code (or your terminal) after installing FFmpeg so your system `PATH` updates. Verify with `ffmpeg -version`.
+
+---
+
+## 2. Environment Configuration
+
+### A. Backend (`backend/.env`)
+Copy `backend/.env.example` to `backend/.env` and configure your keys:
+
+```env
+# Database (PostgreSQL / Supabase Pooler)
+DATABASE_URL=postgresql+psycopg://postgres.<project-ref>:<password>@[aws-0-eu-west-1.pooler.supabase.com:5432/postgres](https://aws-0-eu-west-1.pooler.supabase.com:5432/postgres)
+
+# Security & Access
+SECRET_KEY=replace-with-a-long-random-secret-string
+INVITE_CODE=choose-a-code-for-friends
+ADMIN_EMAILS=your-admin-email@example.com
+DEFAULT_APPS=library,transcribe
+
+# Transcription (Groq Whisper API - free key from [https://console.groq.com/keys](https://console.groq.com/keys))
+GROQ_API_KEY=gsk_your_actual_groq_api_key_here
+TRANSCRIBE_ENGINE=groq
+MAX_AUDIO_MB=600
+
+# Storage & CORS
+STORAGE_DIR=./storage
+STORAGE_BACKEND=local
+MAX_UPLOAD_MB=100
+CORS_ORIGINS=http://localhost:3000,http://localhost:3001,http://localhost:3002
+```
+
+### B. Frontends (`frontend/.env.local`, `frontend-admin/.env.local`, `frontend-stt/.env.local`)
+In **all three** frontend folders, create `.env.local` (from `.env.local.example`) and leave `NEXT_PUBLIC_API_URL` **blank** so all screens send requests to the same origin (`http://127.0.0.1:8000`) without CORS errors:
+
+```env
+NEXT_PUBLIC_API_URL=
+```
+
+> **Note:** Ensure `frontend/next.config.js` includes `output: "export"` so `npm run build` generates the static `out/` directory served by FastAPI.
+
+---
+
+## 3. First-Time Installation & Static Builds
+
+Run these commands from the project root (`readaloud-pdf-app`):
+
+### Step 1: Set up the Python virtual environment
+```powershell
+python -m venv backend\.venv
+.\backend\.venv\Scripts\Activate.ps1
+cd backend
+pip install -r requirements.txt
+cd ..
+```
+
+### Step 2: Build all three static frontends
+FastAPI serves the compiled `out/` folders from each frontend. Run this during initial setup and **any time you edit frontend code**:
+```powershell
+cd frontend; npm install; npm run build; cd ..
+cd frontend-admin; npm install; npm run build; cd ..
+cd frontend-stt; npm install; npm run build; cd ..
+```
+
+Verify that all three `out/` folders exist (must return `True` three times):
+```powershell
+Test-Path frontend\out, frontend-admin\out, frontend-stt\out
+```
+
+---
+
+## 4. Daily Startup Command (Running the App)
+
+Whenever you want to start the application for normal use or testing (without frontend code changes), run from the project root:
+
+```powershell
+# 1. Activate the Python virtual environment
+.\backend\.venv\Scripts\Activate.ps1
+
+# 2. Start the FastAPI server
+cd backend
+python -m uvicorn app.main:app --port 8000
+```
+
+Wait until you see:
+```text
+INFO:     Application startup complete.
+INFO:     Uvicorn running on [http://127.0.0.1:8000](http://127.0.0.1:8000)
+```
+
+---
+
+## 5. First-Time Sign-In & Testing
+
+Always access the app via **`http://127.0.0.1:8000`** (do not mix `localhost` and `127.0.0.1`, and do not open `/admin/` or `/transcribe/` on `npm run dev` ports):
+
+1. **Verify Backend Health:** Open `http://127.0.0.1:8000/api/health` $\rightarrow$ returns `{"ok":true}`.
+2. **Create Your Admin Account:**
+   - Open `http://127.0.0.1:8000/`.
+   - Click **I have an invite code** (passwords are created on first registration, not stored in `.env`).
+   - Enter your `INVITE_CODE` from `backend/.env`, an email listed in `ADMIN_EMAILS`, and choose your password.
+3. **Open the Apps:**
+   - **Library & Reader:** `http://127.0.0.1:8000/`
+   - **Admin Dashboard:** `http://127.0.0.1:8000/admin/`
+   - **Transcription Engine:** `http://127.0.0.1:8000/transcribe/`
+
+---
+
+## 6. Troubleshooting Quick Reference
+
+| Symptom | Cause | Fix |
+| :--- | :--- | :--- |
+| **`404 Not Found` on `/`, `/admin/`, or `/transcribe/`** | Frontend static `out/` folder was not built before starting Uvicorn. | Run `npm run build` in the missing frontend folder, verify with `Test-Path`, and restart Uvicorn. |
+| **Redirected back to `/` when opening `/admin/` or `/transcribe/`** | Not signed in, or your email is not in `ADMIN_EMAILS` / `DEFAULT_APPS`. | Sign in at `http://127.0.0.1:8000/` first, and verify `ADMIN_EMAILS` in `backend/.env`. |
+| **`Failed to fetch` on `/admin/` or `/transcribe/`** | `NEXT_PUBLIC_API_URL` had `http://localhost:8000` baked into the build while browsing on `127.0.0.1`. | Clear `NEXT_PUBLIC_API_URL=` in all `.env.local` files, rebuild the frontends, and restart Uvicorn. |
+| **`The transcription key was rejected`** | Missing, expired, or mistyped `GROQ_API_KEY` in `backend/.env`. | Generate a fresh `gsk_...` key at [console.groq.com/keys](https://console.groq.com/keys), paste it into `backend/.env` without quotes, and restart Uvicorn. |
+| **Audio splitting fails / `ffmpeg not recognized`** | FFmpeg is not installed or VS Code wasn't restarted after installation. | Run `winget install ffmpeg` and restart VS Code. |
+| **Old UI or cached PDF text showing** | Service Worker or IndexedDB cached an older build. | Open Chrome DevTools (`F12`) $\rightarrow$ **Application** $\rightarrow$ **Storage** $\rightarrow$ **Clear site data**, then hard-refresh (`Ctrl + Shift + R`). |

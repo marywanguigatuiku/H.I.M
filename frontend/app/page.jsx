@@ -1,7 +1,7 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
-import { api, getToken, setToken } from "../lib/api";
+import { api, getToken, getUser, setSession, setToken } from "../lib/api";
 import { idbAll, idbDel, idbDelPrefix, idbKeys, idbPut } from "../lib/db";
 import { clearLocalNotes, syncNotes } from "../lib/notes";
 import { applyTheme, getTheme } from "../lib/theme";
@@ -96,8 +96,8 @@ function AuthForm({ onDone }) {
     setBusy(true);
     try {
       const res = await api(`/api/auth/${mode}`, { method: "POST", body: { email, password, invite_code: invite } });
-      setToken(res.token);
-      onDone();
+      setSession(res);
+      onDone(res.home);
     } catch (err) {
       if (err.status === 403) setErrs({ invite: err.message });
       else if (err.status === 409) setErrs({ email: err.message });
@@ -224,7 +224,7 @@ function AuthForm({ onDone }) {
   );
 }
 
-function Library({ onLogout }) {
+function Library({ onLogout, user }) {
   const [docs, setDocs] = useState([]);
   const [offline, setOffline] = useState(new Set());
   const [notes, setNotes] = useState([]);
@@ -380,10 +380,11 @@ function Library({ onLogout }) {
                   {offline.has(d.id) && <span className="badge">Offline</span>}
                 </Link>
                 <div className="dt">{cleanTitle(d.title)}</div>
+                {d.shared && <div className="muted sm">Shared with you</div>}
                 <div className="muted sm" style={{ marginTop: 2 }}>{fmtSize(d.size)} · {started(d) ? `Page ${d.last_page}` : "Not started"}</div>
                 <div className="row" style={{ marginTop: 8, gap: 6 }}>
                   {!offline.has(d.id) && <button className="chip sm" onClick={() => saveOffline(d)}>Save offline</button>}
-                  <button className="ib" style={{ width: 36, height: 36 }} aria-label={`Delete ${d.title}`} onClick={() => remove(d)}><Icon size={18} d={P.trash} /></button>
+                  {!d.shared && <button className="ib" style={{ width: 36, height: 36 }} aria-label={`Delete ${d.title}`} onClick={() => remove(d)}><Icon size={18} d={P.trash} /></button>}
                 </div>
               </div>
             ))}
@@ -417,7 +418,17 @@ function Library({ onLogout }) {
               </button>
             ))}
           </div>
+          {user && (user.role === "admin" || user.apps.includes("transcribe")) && (
+            <>
+              <div className="lbl" style={{ marginTop: 28 }}>YOUR APPS</div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8, marginTop: 8 }}>
+                {user.apps.includes("transcribe") && <a className="btn ghost" href="/transcribe/">Open Transcribe</a>}
+                {user.role === "admin" && <a className="btn ghost" href="/admin/">Open Admin</a>}
+              </div>
+            </>
+          )}
           <div className="lbl" style={{ marginTop: 28 }}>ACCOUNT</div>
+          {user && <div className="muted sm" style={{ marginTop: 8 }}>Signed in as {user.email}</div>}
           <button className="btn ghost" style={{ marginTop: 8, width: "100%" }} onClick={onLogout}>Sign out</button>
         </>
       )}
@@ -444,17 +455,48 @@ function Library({ onLogout }) {
 export default function Home() {
   const [ready, setReady] = useState(false);
   const [authed, setAuthed] = useState(false);
+  const [user, setUserState] = useState(null);
+
+  // Called right after a successful sign-in: send the person to the app their email belongs to.
+  function enter(home) {
+    if (home && home !== "/") {
+      window.location.href = home;
+      return;
+    }
+    setUserState(getUser());
+    setAuthed(true);
+  }
+
   useEffect(() => {
-    setAuthed(!!getToken());
-    setReady(true);
     const lost = () => setAuthed(false);
     window.addEventListener("auth-lost", lost);
+    (async () => {
+      if (getToken()) {
+        try {
+          const me = await api("/api/auth/me");
+          localStorage.setItem("user", JSON.stringify(me.user));
+          if (!me.user.apps.includes("library")) {
+            window.location.href = me.home; // no Library access: go to the right app
+            return;
+          }
+          setUserState(me.user);
+          setAuthed(true);
+        } catch (e) {
+          if (e.status !== 401 && getToken()) {
+            setUserState(getUser()); // offline: keep working with what we know
+            setAuthed(true);
+          }
+        }
+      }
+      setReady(true);
+    })();
     return () => window.removeEventListener("auth-lost", lost);
   }, []);
+
   if (!ready) return null;
   return authed ? (
-    <Library onLogout={() => { clearLocalNotes().catch(() => {}); setToken(null); setAuthed(false); }} />
+    <Library user={user} onLogout={() => { clearLocalNotes().catch(() => {}); setToken(null); setAuthed(false); }} />
   ) : (
-    <AuthForm onDone={() => setAuthed(true)} />
+    <AuthForm onDone={enter} />
   );
 }
